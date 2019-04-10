@@ -211,7 +211,8 @@ try_set_instance_collectdir() {
       # Put logs into a directory for this instance.
       info_system="${collectdir}/${instance_id}"
       # And in a pack that includes the instance id in its name.
-      pack_name="collect-${instance_id}"
+      datetime=`date +%Y%m%d%H%M`
+      pack_name="collect-${instance_id}-${datetime}"
       mkdir -p "${info_system}"
       echo "$instance_id" > "$info_system"/instance-id.txt
     else
