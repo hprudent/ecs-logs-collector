@@ -163,8 +163,12 @@ collect_brief() {
   get_docker_info
   get_docker_containers_info
   get_docker_logs
+  get_docker_systemd_config
+  get_docker_sysconfig
+  get_docker_daemon_json
   get_ecs_agent_logs
   get_ecs_agent_info
+  get_open_files
 }
 
 enable_debug() {
@@ -308,6 +312,16 @@ get_iptables_info() {
   ok
 }
 
+get_open_files() {
+  try "get open files list"
+
+  mkdir -p "$info_system"
+  for d in /proc/*/fd; do echo "$d"; find "$d" -maxdepth 1 | wc -l; done > "$info_system"/open-file-counts.txt
+  ls -l /proc/*/fd > "$info_system"/open-file-details.txt
+
+  ok
+}
+
 get_common_logs() {
   try "collect common operating system logs"
 
@@ -335,13 +349,14 @@ get_kernel_logs() {
 }
 
 get_docker_logs() {
-  try "collect Docker daemon logs"
+  try "collect Docker and containerd daemon logs"
 
   dstdir="${info_system}/docker_log"
   mkdir -p "$dstdir"
   case "${init_type}" in
     systemd)
       journalctl -u docker > "${dstdir}"/docker
+      journalctl -u containerd > "${info_system}"/containerd.log
       ;;
     other)
       for entry in docker upstart/docker; do
@@ -446,6 +461,11 @@ get_ecs_agent_info() {
     python -mjson.tool < /var/lib/ecs/data/ecs_agent_data.json > "$info_system"/ecs-agent/ecs_agent_data.txt 2>&1
   fi
 
+  if [ -e /var/lib/ecs/data/agent.db ]; then
+    cp -f /var/lib/ecs/data/agent.db "$info_system"/ecs-agent/agent.db 2>&1
+    chmod +r "$info_system"/ecs-agent/agent.db
+  fi
+
   if [ -e /etc/ecs/ecs.config ]; then
     cp -f /etc/ecs/ecs.config "$info_system"/ecs-agent/ 2>&1
     if grep --quiet "ECS_ENGINE_AUTH_DATA" "$info_system"/ecs-agent/ecs.config; then
@@ -495,6 +515,66 @@ get_docker_containers_info() {
     return 1
   fi
   ok
+}
+
+get_docker_sysconfig() {
+  try "collect Docker sysconfig"
+
+  if [ -e /etc/sysconfig/docker ]; then
+    mkdir -p "${info_system}"/docker
+    cp /etc/sysconfig/docker "${info_system}"/docker/sysconfig-docker
+    ok
+  else
+    info "/etc/sysconfig/docker not found"
+  fi
+
+ try "collect Docker storage sysconfig"
+
+  if [ -e /etc/sysconfig/docker-storage ]; then
+    mkdir -p "${info_system}"/docker
+    cp /etc/sysconfig/docker-storage "${info_system}"/docker/sysconfig-docker-storage
+    ok
+  else
+    info "/etc/sysconfig/docker-storage not found"
+  fi
+}
+
+
+get_docker_daemon_json(){
+  try "collect Docker daemon.json"
+
+  if [ -e /etc/docker/daemon.json ]; then
+    mkdir -p "${info_system}"/docker
+    cp /etc/docker/daemon.json "${info_system}"/docker/daemon.json
+    ok
+  else
+    info "/etc/docker/daemon.json not found"
+  fi
+}
+
+get_docker_systemd_config(){
+
+  if [[ "$init_type" != "systemd" ]]; then
+    return 0
+  fi
+
+  try "collect Docker systemd unit file"
+
+  mkdir -p "${info_system}"/docker
+  if systemctl cat docker.service > "${info_system}"/docker/docker.service 2>/dev/null; then
+   ok
+  else
+    rm -f "$info_system/docker/docker.service"
+    warning "docker.service not found"
+  fi
+
+  try "collect containerd systemd unit file"
+  if systemctl cat containerd.service > "${info_system}"/docker/containerd.service 2>/dev/null; then
+   ok
+  else
+    rm -f "$info_system/docker/containerd.service"
+    warning "containerd.service not found"
+  fi
 }
 
 enable_docker_debug() {
